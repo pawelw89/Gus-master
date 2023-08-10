@@ -1,0 +1,82 @@
+image: clorceln/pipelinesimg:latest
+
+pipelines:
+  pull-requests: 
+    feature/*:
+      - step:
+            name: 'Code Check'
+            # runs-on:
+            #   - self.hosted
+            #   - linux
+            script:
+              - echo "Your deployment to prod script goes here..."
+              - sfdx plugins:install @salesforce/sfdx-scanner
+              - mkdir -p test-reports
+              - sfdx scanner:run --target "force-app" -s 1  --engine "eslint-lwc,pmd"     
+      - step:
+          name: 'Deployment to UAT'
+          trigger: 'manual'
+          # runs-on:
+          #   - self.hosted
+          #   - linux
+          deployment: uat
+          script:
+            # ===UAT-deploy start===
+            - echo "UAT deploy start"
+            #===assign variables===
+            - export SFDX_USE_GENERIC_UNIX_KEYCHAIN=true
+            - export SFDX_DOMAIN_RETRY=300 && export SFDX_DISABLE_APP_HUB=true
+            - export SFDX_LOG_LEVEL=DEBUG && export SFDX_IMPROVED_CODE_COVERAGE='true'
+            - export SFDX_AUTOUPDATE_DISABLE=false
+            # - export CLIURL=https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz
+            - sfdx --version 
+            - npm install --global sfdx-cli
+            - sfdx plugins --core
+            - export USERNAME=$UAT_USERNAME
+            - export CONSUMER_KEY=$UAT_CONSUMERKEY
+            - export INSTANCE_URL=https://test.salesforce.com
+            - export SERVER_KEY_PATH=certificates/server.key
+            - sfdx update
+            #===auth with target===
+            - sfdx force:auth:jwt:grant --clientid $CONSUMER_KEY --username $USERNAME --jwtkeyfile $SERVER_KEY_PATH --setdefaultdevhubusername --setalias sfdx-ci --instanceurl $INSTANCE_URL
+            #===deploy===
+            - sfdx force:source:deploy -p force-app -w 60 -u $USERNAME -l RunLocalTests --verbose
+            #===test-deploy check success===
+            - echo "UAT deploy END"
+    uat/*:
+      - step:
+            name: 'Code Check'
+            # runs-on:
+            #   - self.hosted
+            #   - linux
+            script:
+              - echo "Your deployment to prod script goes here..."
+              - sfdx plugins:install @salesforce/sfdx-scanner
+              - mkdir -p test-reports
+              - sfdx scanner:run --target "force-app" -s 1  --engine "eslint-lwc,pmd" -o test-reports/rap.json                 
+      - step:
+            name: 'Deployment to Production'
+            runs-on:
+              - self.hosted
+              - linux
+            deployment: production
+            trigger: 'manual'
+            script:
+              - echo "Deployment to Production"
+              - export SFDX_USE_GENERIC_UNIX_KEYCHAIN=true
+              - export SFDX_DOMAIN_RETRY=300 && export SFDX_DISABLE_APP_HUB=true
+              - export SFDX_LOG_LEVEL=DEBUG && export SFDX_IMPROVED_CODE_COVERAGE='true'
+              - export SFDX_AUTOUPDATE_DISABLE=false
+              - sfdx --version 
+              - npm install --global sfdx-cli
+              - sfdx plugins --core
+              - export USERNAME=$PROD_USERNAME
+              - export CONSUMER_KEY=$PROD_CONSUMERKEY
+              - export INSTANCE_URL=https://login.salesforce.com
+              - export SERVER_KEY_PATH=certificates/server.key
+              - sfdx update
+              #===auth with target===
+              - sfdx force:auth:jwt:grant --clientid $CONSUMER_KEY --username $USERNAME --jwtkeyfile $SERVER_KEY_PATH --setdefaultdevhubusername --setalias sfdx-ci --instanceurl $INSTANCE_URL
+              #===deploy===
+              - sfdx force:source:deploy -p force-app -w 60 -u $USERNAME -l RunLocalTests --verbose
+              - echo "Production deploy END"
